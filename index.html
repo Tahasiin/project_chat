@@ -149,6 +149,28 @@
     <script src="assets/js/app.min.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/peerjs@1.3.2/dist/peerjs.min.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(registration => {
+                    console.log('Service Worker registered with scope:', registration.scope);
+
+                    // Request permission for notifications
+                    if (Notification.permission === 'default') {
+                        Notification.requestPermission().then(permission => {
+                            if (permission === 'granted') {
+                                console.log('Notification permission granted.');
+                            } else {
+                                console.log('Notification permission denied.');
+                            }
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Service Worker registration failed:', error);
+                });
+        }
+    </script>
 
     <script>
         const peerId1 = '11111-22222-33333-44444-55555';
@@ -157,12 +179,12 @@
         let remotePeerId = null;
         let peer = null;
         let connection = null;
-    
+
         const peerStatus = {
             [peerId1]: 'offline',
             [peerId2]: 'offline'
         };
-    
+
         const iceServers = [
             { urls: "stun:stun.l.google.com:19302" },
             {
@@ -171,41 +193,46 @@
                 credential: "password"
             }
         ];
-    
+
         let idleTimeout = null;
         const idleLimit = 15 * 60 * 1000; // 15 minutes in milliseconds
-    
+
         function updateStatus(peerID, status, badge) {
             const peerElement = peerID === currentPeerId ? document.getElementById('local-peer') : document.getElementById('remote-peer');
             if (peerElement) {
                 const statusElement = peerElement.querySelector('.text-muted');
                 const badgeElement = peerElement.querySelector('.badge-indicator');
-    
+
                 if (statusElement) {
                     statusElement.textContent = status;
                 }
                 if (badgeElement) {
                     badgeElement.className = `badge badge-indicator badge-${badge}`;
                 }
-    
+
                 if (peerID !== currentPeerId && status === 'Online') {
                     showNotification('Remote user is online', 'The remote user has come back online.');
                 }
             }
         }
-    
+
         function showNotification(title, body) {
             if (Notification.permission === 'granted') {
-                new Notification(title, { body });
+                navigator.serviceWorker.ready.then(registration => {
+                    registration.showNotification(title, { body });
+                });
             } else if (Notification.permission !== 'denied') {
                 Notification.requestPermission().then(permission => {
                     if (permission === 'granted') {
-                        new Notification(title, { body });
+                        navigator.serviceWorker.ready.then(registration => {
+                            registration.showNotification(title, { body });
+                        });
                     }
                 });
             }
         }
-    
+
+
         function notifyPeers(status) {
             if (connection && connection.open) {
                 connection.send({
@@ -213,12 +240,24 @@
                     peerID: currentPeerId,
                     status: status
                 });
+
+                // Show a notification if the status is 'online'
+                if (status === 'online' && currentPeerId !== remotePeerId) {
+                    navigator.serviceWorker.ready.then(registration => {
+                        registration.showNotification('Remote user is online', {
+                            body: 'The remote user has come back online.',
+                            icon: '/icon.png',
+                            badge: '/badge.png'
+                        });
+                    });
+                }
             }
         }
-    
+
+
         function setupPeer(id) {
             peer = new Peer(id, { config: { iceServers } });
-    
+
             peer.on('open', (peerId) => {
                 console.log('My peer ID is: ' + peerId);
                 currentPeerId = peerId;
@@ -228,7 +267,7 @@
                 remotePeerId = (peerId === peerId1) ? peerId2 : peerId1;
                 tryConnectToRemotePeer();
             });
-    
+
             peer.on('connection', (conn) => {
                 connection = conn;
                 connection.on('open', () => {
@@ -251,7 +290,7 @@
                     notifyPeers('offline');
                 });
             });
-    
+
             peer.on('error', (err) => {
                 console.error('PeerJS error:', err);
                 if (err.type === 'unavailable-id') {
@@ -262,13 +301,13 @@
                     }
                 }
             });
-    
+
             peer.on('disconnected', () => {
                 peerStatus[currentPeerId] = 'offline';
                 updateStatus(currentPeerId, 'Offline', 'danger');
                 notifyPeers('offline');
             });
-    
+
             window.addEventListener('beforeunload', () => {
                 if (currentPeerId) {
                     peerStatus[currentPeerId] = 'offline';
@@ -276,13 +315,13 @@
                     notifyPeers('offline');
                 }
             });
-    
+
             document.addEventListener('visibilitychange', handleVisibilityChange);
         }
-    
+
         async function tryConnectToRemotePeer() {
             if (!remotePeerId) return;
-    
+
             const conn = peer.connect(remotePeerId);
             conn.on('open', () => {
                 console.log('Connection established with ' + remotePeerId);
@@ -305,7 +344,7 @@
                 notifyPeers('offline');
             });
         }
-    
+
         function handleVisibilityChange() {
             if (document.visibilityState === 'hidden') {
                 if (connection && connection.open) {
@@ -323,7 +362,7 @@
                 }
             }
         }
-    
+
         function startIdleTimeout() {
             idleTimeout = setTimeout(() => {
                 if (connection && connection.open) {
@@ -334,23 +373,23 @@
                 }
             }, idleLimit);
         }
-    
+
         function resetIdleTimeout() {
             clearIdleTimeout();
             startIdleTimeout();
         }
-    
+
         function clearIdleTimeout() {
             if (idleTimeout) {
                 clearTimeout(idleTimeout);
                 idleTimeout = null;
             }
         }
-    
+
         // Start with current user as peerId1
         setupPeer(peerId1);
     </script>
-    
+
 
 
 

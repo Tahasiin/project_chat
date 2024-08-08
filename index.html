@@ -302,6 +302,7 @@
                             call.on('stream', remoteStream => {
                                 console.log('Received remote stream');
                                 mainVideo.srcObject = remoteStream;
+                                mainVideo.play().catch(error => console.error('Error playing remote video:', error));
                                 modal_toggle('search-drawer2');
                             });
                             call.on('error', err => {
@@ -319,6 +320,7 @@
                             call.on('stream', remoteStream => {
                                 console.log('Received remote stream from ' + call.peer);
                                 mainVideo.srcObject = remoteStream;
+                                mainVideo.play().catch(error => console.error('Error playing remote video:', error));
                                 modal_toggle('search-drawer2');
                             });
                             call.on('error', err => {
@@ -494,6 +496,7 @@
         // Start with current user as peerId1
         setupPeer(peerId1);
     </script>
+    
     
 
 

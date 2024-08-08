@@ -174,285 +174,263 @@
         let remotePeerId = null;
         let peer = null;
         let connection = null;
-
+        let currentCall = null;
+    
+        const localVideo = document.getElementById('local-video');
+        const mainVideo = document.getElementById('remote-video');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const reconnectBtn = document.getElementById('reconnect-btn');
+    
         const peerStatus = {
             [peerId1]: 'offline',
             [peerId2]: 'offline'
         };
-
-        const iceServers = [
-            { urls: "stun:stun.l.google.com:19302" },
-            {
-                urls: "turn:try-turn.vercel.app",
-                username: "user",
-                credential: "password"
-            }
-        ];
-
+    
         let idleTimeout = null;
         const idleLimit = 15 * 60 * 1000; // 15 minutes in milliseconds
-
-        const disconnectBtn = document.getElementById('disconnect-btn');
-        const reconnectBtn = document.getElementById('reconnect-btn');
-
-        const localVideo = document.getElementById('local-video');
-        const mainVideo = document.getElementById('remote-video');
-
-        disconnectBtn.addEventListener('click', () => {
-            if (connection && connection.open) {
-                connection.close();
+    
+        const iceServers = [
+            { urls: "stun:stun.l.google.com:19302" }, // Optional STUN server
+            {
+                urls: "turn:try-turn.vercel.app", // Your TURN server URL
+                username: "user", // Your TURN username
+                credential: "password" // Your TURN password
             }
-            updateStatus(currentPeerId, 'offline', 'danger');
-            notifyPeers('offline');
-            disconnectBtn.classList.add('d-none');
-            reconnectBtn.classList.remove('d-none');
-            if (peer) {
-                peer.destroy(); // Ensure the peer instance is properly destroyed
-            }
-        });
-
-        reconnectBtn.addEventListener('click', () => {
-            reconnectBtn.classList.add('d-none');
-            setupPeer(currentPeerId); // Reconnect with the same peer ID
-        });
-
-        function updateStatus(peerID, status, badge) {
-            const peerElement = peerID === currentPeerId ? document.getElementById('local-peer') : document.getElementById('remote-peer');
-            if (peerElement) {
-                const statusElement = peerElement.querySelector('.text-muted');
-                const badgeElement = peerElement.querySelector('.badge-indicator');
-
-                if (statusElement) {
-                    statusElement.textContent = status;
-                }
-                if (badgeElement) {
-                    badgeElement.className = `badge badge-indicator badge-${badge}`;
-                }
-            }
-        }
-
-        function showNotification(title, body) {
-            if (Notification.permission === 'granted') {
-                new Notification(title, { body });
-            } else if (Notification.permission !== 'denied') {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        new Notification(title, { body });
+        ];
+    
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then(stream => {
+                localVideo.srcObject = stream;
+    
+                function setupPeer(id) {
+                    if (peer) {
+                        peer.destroy(); // Ensure the previous peer instance is properly destroyed
                     }
-                });
-            }
-        }
-
-        function notifyPeers(status) {
-            if (connection && connection.open) {
-                connection.send({
-                    type: 'status-update',
-                    peerID: currentPeerId,
-                    status: status
-                });
-            }
-        }
-
-        function setupPeer(id) {
-            if (peer) {
-                peer.destroy(); // Ensure the previous peer instance is properly destroyed
-            }
-
-            if (connection && connection.open) {
-                connection.close();
-            }
-
-            peer = new Peer(id, { config: { iceServers } });
-
-            peer.on('open', (peerId) => {
-                console.log('My peer ID is: ' + peerId);
-                currentPeerId = peerId;
-                peerStatus[peerId] = 'online';
-                updateStatus(peerId, 'Online', 'success');
-                notifyPeers('online');
-                remotePeerId = (peerId === peerId1) ? peerId2 : peerId1;
-                tryConnectToRemotePeer();
-
-                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                    .then(stream => {
-                        localVideo.srcObject = stream;
-
+    
+                    if (connection && connection.open) {
+                        connection.close();
+                    }
+    
+                    peer = new Peer(id, { config: { iceServers } });
+    
+                    peer.on('open', peerId => {
+                        console.log('My peer ID is: ' + peerId);
+                        currentPeerId = peerId;
+                        peerStatus[peerId] = 'online';
+                        updateStatus(peerId, 'Online', 'success');
+                        remotePeerId = (peerId === peerId1) ? peerId2 : peerId1;
+    
+                        // Try connecting to the remote peer
+                        tryConnectToRemotePeer();
+    
                         // Automatically call the remote peer if current peer is peerId2
                         if (peerId === peerId2) {
                             console.log('Calling remote peer ' + remotePeerId);
                             const call = peer.call(remotePeerId, stream);
                             currentCall = call;
-
                             call.on('stream', remoteStream => {
                                 console.log('Received remote stream');
                                 mainVideo.srcObject = remoteStream;
                             });
-
                             call.on('error', err => {
                                 console.error('Call error:', err);
                             });
                         }
                     });
-            });
-
-            peer.on('connection', (conn) => {
-                connection = conn;
-                connection.on('open', () => {
-                    console.log('Connection established with ' + conn.peer);
-                    peerStatus[conn.peer] = 'online';
-                    updateStatus(conn.peer, 'Online', 'success');
-                    notifyPeers('online');
-                    disconnectBtn.classList.remove('d-none');
-                    reconnectBtn.classList.add('d-none');
-                    resetIdleTimeout(); // Reset the idle timeout when the connection is established
-
-                    // Open the modal for both users
-                    setTimeout(() => {
-                        modal_toggle('video-calling-modal');
-                    }, 100); // Small delay to ensure modal displays correctly
-                });
-                connection.on('data', (data) => {
-                    if (data.type === 'status-update') {
-                        peerStatus[data.peerID] = data.status;
-                        updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
+    
+                    peer.on('call', call => {
+                        if (!remotePeerId) {
+                            remotePeerId = call.peer;
+                        }
+                        console.log('Answering call from ' + remotePeerId);
+                        call.answer(stream);
+                        currentCall = call;
+                        call.on('stream', remoteStream => {
+                            console.log('Received remote stream from ' + call.peer);
+                            mainVideo.srcObject = remoteStream;
+                        });
+                        call.on('error', err => {
+                            console.error('Call error:', err);
+                        });
+                    });
+    
+                    peer.on('connection', conn => {
+                        connection = conn;
+                        conn.on('open', () => {
+                            console.log('Connection established with ' + conn.peer);
+                            disconnectBtn.classList.remove('d-none');
+                            reconnectBtn.classList.add('d-none');
+                            resetIdleTimeout(); // Reset the idle timeout when the connection is established
+    
+                            // Open the modal for both users
+                            console.log('Opening modal');
+                            setTimeout(() => {
+                                modal_toggle('video-calling-modal');
+                            }, 100); // Small delay to ensure modal displays correctly
+                        });
+                        conn.on('close', () => {
+                            console.log('Connection closed with ' + conn.peer);
+                            peerStatus[conn.peer] = 'offline';
+                            updateStatus(conn.peer, 'Offline', 'danger');
+                            disconnectBtn.classList.add('d-none');
+                            reconnectBtn.classList.remove('d-none');
+                        });
+                    });
+    
+                    peer.on('error', err => {
+                        console.error('PeerJS error:', err);
+                        if (err.type === 'unavailable-id') {
+                            if (id === peerId1) {
+                                setupPeer(peerId2);
+                            } else {
+                                alert('Room is full');
+                            }
+                        }
+                    });
+    
+                    peer.on('disconnected', () => {
+                        console.log('Peer disconnected');
+                        handleDisconnection();
+                    });
+    
+                    window.addEventListener('beforeunload', () => {
+                        handleDisconnection();
+                    });
+    
+                    document.addEventListener('visibilitychange', handleVisibilityChange);
+                }
+    
+                async function tryConnectToRemotePeer() {
+                    if (!remotePeerId) return;
+    
+                    const conn = peer.connect(remotePeerId);
+                    conn.on('open', () => {
+                        console.log('Connection established with ' + remotePeerId);
+                        connection = conn;
+                        peerStatus[remotePeerId] = 'online';
+                        updateStatus(remotePeerId, 'Online', 'success');
+                        disconnectBtn.classList.remove('d-none');
+                        reconnectBtn.classList.add('d-none');
+                        resetIdleTimeout(); // Reset the idle timeout when the connection is established
+    
+                        // Open the modal for both users
+                        console.log('Opening modal');
+                        setTimeout(() => {
+                            modal_toggle('video-calling-modal');
+                        }, 100); // Small delay to ensure modal displays correctly
+                    });
+                    conn.on('close', () => {
+                        console.log('Connection closed with ' + remotePeerId);
+                        peerStatus[remotePeerId] = 'offline';
+                        updateStatus(remotePeerId, 'Offline', 'danger');
+                        disconnectBtn.classList.add('d-none');
+                        reconnectBtn.classList.remove('d-none');
+                    });
+                }
+    
+                function updateStatus(peerID, status, badge) {
+                    const peerElement = peerID === currentPeerId ? document.getElementById('local-peer') : document.getElementById('remote-peer');
+                    if (peerElement) {
+                        const statusElement = peerElement.querySelector('.text-muted');
+                        const badgeElement = peerElement.querySelector('.badge-indicator');
+    
+                        if (statusElement) {
+                            statusElement.textContent = status;
+                        }
+                        if (badgeElement) {
+                            badgeElement.className = `badge badge-indicator badge-${badge}`;
+                        }
                     }
-                });
-                connection.on('close', () => {
-                    console.log('Connection closed with ' + conn.peer);
-                    peerStatus[conn.peer] = 'offline';
-                    updateStatus(conn.peer, 'Offline', 'danger');
-                    disconnectBtn.classList.add('d-none');
-                    reconnectBtn.classList.remove('d-none');
-                    notifyPeers('offline');
-                });
-            });
-
-            peer.on('error', (err) => {
-                console.error('PeerJS error:', err);
-                if (err.type === 'unavailable-id') {
-                    if (id === peerId1) {
-                        setupPeer(peerId2);
-                    } else {
-                        alert('Room is full');
+                }
+    
+                function handleVisibilityChange() {
+                    if (document.visibilityState === 'hidden') {
+                        if (connection && connection.open) {
+                            peerStatus[currentPeerId] = 'idle';
+                            updateStatus(currentPeerId, 'Idle', 'warning');
+                            notifyPeers('idle');
+                            startIdleTimeout();
+                        }
+                    } else if (document.visibilityState === 'visible') {
+                        if (connection && connection.open) {
+                            peerStatus[currentPeerId] = 'online';
+                            updateStatus(currentPeerId, 'Online', 'success');
+                            notifyPeers('online');
+                            clearIdleTimeout();
+                        }
                     }
                 }
-            });
-
-            peer.on('disconnected', () => {
-                peerStatus[currentPeerId] = 'offline';
-                updateStatus(currentPeerId, 'Offline', 'danger');
-                notifyPeers('offline');
-                disconnectBtn.classList.add('d-none');
-                reconnectBtn.classList.remove('d-none');
-            });
-
-            window.addEventListener('beforeunload', () => {
-                if (currentPeerId) {
-                    handleDisconnection();
+    
+                function startIdleTimeout() {
+                    idleTimeout = setTimeout(() => {
+                        if (connection && connection.open) {
+                            connection.close(); // Close the connection after 15 minutes of being idle
+                            peerStatus[currentPeerId] = 'offline';
+                            updateStatus(currentPeerId, 'Offline', 'danger');
+                            notifyPeers('offline');
+                            disconnectBtn.classList.add('d-none');
+                            reconnectBtn.classList.remove('d-none');
+                        }
+                    }, idleLimit);
                 }
-            });
-
-            document.addEventListener('visibilitychange', handleVisibilityChange);
-        }
-
-        async function tryConnectToRemotePeer() {
-            if (!remotePeerId) return;
-
-            const conn = peer.connect(remotePeerId);
-            conn.on('open', () => {
-                console.log('Connection established with ' + remotePeerId);
-                connection = conn;
-                notifyPeers('online');
-                peerStatus[remotePeerId] = 'online';
-                updateStatus(remotePeerId, 'Online', 'success');
-                disconnectBtn.classList.remove('d-none');
-                reconnectBtn.classList.add('d-none');
-                resetIdleTimeout(); // Reset the idle timeout when the connection is established
-
-                // Open the modal for both users
-                setTimeout(() => {
-                    modal_toggle('video-calling-modal');
-                }, 100); // Small delay to ensure modal displays correctly
-            });
-            conn.on('data', (data) => {
-                if (data.type === 'status-update') {
-                    peerStatus[data.peerID] = data.status;
-                    updateStatus(data.peerID, data.status === 'online' ? 'Online' : 'Idle', data.status === 'online' ? 'success' : 'warning');
+    
+                function resetIdleTimeout() {
+                    clearIdleTimeout();
+                    startIdleTimeout();
                 }
-            });
-            conn.on('close', () => {
-                console.log('Connection closed with ' + remotePeerId);
-                peerStatus[remotePeerId] = 'offline';
-                updateStatus(remotePeerId, 'Offline', 'danger');
-                disconnectBtn.classList.add('d-none');
-                reconnectBtn.classList.remove('d-none');
-                notifyPeers('offline');
-            });
-        }
-
-        function handleVisibilityChange() {
-            if (document.visibilityState === 'hidden') {
-                if (connection && connection.open) {
-                    peerStatus[currentPeerId] = 'idle';
-                    updateStatus(currentPeerId, 'Idle', 'warning');
-                    notifyPeers('idle');
-                    startIdleTimeout(); // Start the idle timeout when the page becomes hidden
+    
+                function clearIdleTimeout() {
+                    if (idleTimeout) {
+                        clearTimeout(idleTimeout);
+                        idleTimeout = null;
+                    }
                 }
-            } else if (document.visibilityState === 'visible') {
-                if (connection && connection.open) {
-                    peerStatus[currentPeerId] = 'online';
-                    updateStatus(currentPeerId, 'Online', 'success');
-                    notifyPeers('online');
-                    clearIdleTimeout(); // Clear the idle timeout when the page becomes visible
-                }
-            }
-        }
-
-        function startIdleTimeout() {
-            idleTimeout = setTimeout(() => {
-                if (connection && connection.open) {
-                    connection.close(); // Close the connection after 15 minutes of being idle
-                    peerStatus[currentPeerId] = 'offline';
+    
+                function handleDisconnection() {
+                    if (connection && connection.open) {
+                        connection.close(); // Ensure the connection is closed
+                    }
                     updateStatus(currentPeerId, 'Offline', 'danger');
                     notifyPeers('offline');
                     disconnectBtn.classList.add('d-none');
                     reconnectBtn.classList.remove('d-none');
+                    if (peer) {
+                        peer.destroy(); // Ensure the peer instance is properly destroyed
+                    }
                 }
-            }, idleLimit);
-        }
-
-        function resetIdleTimeout() {
-            clearIdleTimeout();
-            startIdleTimeout();
-        }
-
-        function clearIdleTimeout() {
-            if (idleTimeout) {
-                clearTimeout(idleTimeout);
-                idleTimeout = null;
-            }
-        }
-
-        function handleDisconnection() {
-            if (connection && connection.open) {
-                connection.close(); // Ensure the connection is closed
-            }
-            updateStatus(currentPeerId, 'Offline', 'danger');
-            notifyPeers('offline');
-            disconnectBtn.classList.add('d-none');
-            reconnectBtn.classList.remove('d-none');
-            if (peer) {
-                peer.destroy(); // Ensure the peer instance is properly destroyed
-            }
-        }
-
-        function modal_toggle(id) {
-            $('#' + id).modal('toggle');
-        }
-
-        // Start with current user as peerId1
-        setupPeer(peerId1);
+    
+                function notifyPeers(status) {
+                    if (connection && connection.open) {
+                        connection.send({
+                            type: 'status-update',
+                            peerID: currentPeerId,
+                            status: status
+                        });
+                    }
+                }
+    
+                function modal_toggle(id) {
+                    $('#' + id).modal('toggle');
+                }
+    
+                // Start with current user as peerId1
+                setupPeer(peerId1);
+    
+                disconnectBtn.addEventListener('click', () => {
+                    handleDisconnection();
+                });
+    
+                reconnectBtn.addEventListener('click', () => {
+                    reconnectBtn.classList.add('d-none');
+                    setupPeer(currentPeerId); // Reconnect with the same peer ID
+                });
+    
+            })
+            .catch(err => {
+                console.error('Failed to get media: ', err);
+            });
     </script>
+    
 
 
 </body>

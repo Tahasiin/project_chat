@@ -213,6 +213,29 @@
     
                     peer = new Peer(id, { config: { iceServers } });
     
+                    peer.on('connection', conn => {
+                        connection = conn;
+                        conn.on('open', () => {
+                            console.log('Connection established with ' + conn.peer);
+                            disconnectBtn.classList.remove('d-none');
+                            reconnectBtn.classList.add('d-none');
+                            resetIdleTimeout(); // Reset the idle timeout when the connection is established
+    
+                            // Open the modal for both users
+                            console.log('Opening modal');
+                            setTimeout(() => {
+                                modal_toggle('video-calling-modal');
+                            }, 100); // Small delay to ensure modal displays correctly
+                        });
+                        conn.on('close', () => {
+                            console.log('Connection closed with ' + conn.peer);
+                            peerStatus[conn.peer] = 'offline';
+                            updateStatus(conn.peer, 'Offline', 'danger');
+                            disconnectBtn.classList.add('d-none');
+                            reconnectBtn.classList.remove('d-none');
+                        });
+                    });
+                    
                     peer.on('open', peerId => {
                         console.log('My peer ID is: ' + peerId);
                         currentPeerId = peerId;
@@ -253,30 +276,7 @@
                             console.error('Call error:', err);
                         });
                     });
-    
-                    peer.on('connection', conn => {
-                        connection = conn;
-                        conn.on('open', () => {
-                            console.log('Connection established with ' + conn.peer);
-                            disconnectBtn.classList.remove('d-none');
-                            reconnectBtn.classList.add('d-none');
-                            resetIdleTimeout(); // Reset the idle timeout when the connection is established
-    
-                            // Open the modal for both users
-                            console.log('Opening modal');
-                            setTimeout(() => {
-                                modal_toggle('video-calling-modal');
-                            }, 100); // Small delay to ensure modal displays correctly
-                        });
-                        conn.on('close', () => {
-                            console.log('Connection closed with ' + conn.peer);
-                            peerStatus[conn.peer] = 'offline';
-                            updateStatus(conn.peer, 'Offline', 'danger');
-                            disconnectBtn.classList.add('d-none');
-                            reconnectBtn.classList.remove('d-none');
-                        });
-                    });
-    
+
                     peer.on('error', err => {
                         console.error('PeerJS error:', err);
                         if (err.type === 'unavailable-id') {
